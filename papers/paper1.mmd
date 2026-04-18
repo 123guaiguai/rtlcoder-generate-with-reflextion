@@ -1,0 +1,358 @@
+\documentclass[conference]{IEEEtran}
+\usepackage{amsmath,amssymb}
+\usepackage{graphicx}
+\usepackage{booktabs}
+\usepackage{multirow}
+\usepackage{caption}
+\usepackage{subcaption}
+\usepackage{url}
+
+\begin{document}
+
+\title{AutoChip: Automating HDL Generation Using LLM Feedback}
+
+\author{
+\IEEEauthorblockN{Shailja Thakur\IEEEauthorrefmark{*}}
+\IEEEauthorblockA{New York University, USA\\
+st4920@nyu.edu}
+\and
+\IEEEauthorblockN{Jason Blocklove\IEEEauthorrefmark{*}}
+\IEEEauthorblockA{New York University, USA\\
+jason.blocklove@nyu.edu}
+\and
+\IEEEauthorblockN{Benjamin Tan}
+\IEEEauthorblockA{University of Calgary, Canada\\
+benjamin.tan1@ucalgary.ca}
+\and
+\IEEEauthorblockN{Siddharth Garg, Ramesh Karri}
+\IEEEauthorblockA{New York University, USA}
+\and
+\IEEEauthorblockN{Hammond Pearce}
+\IEEEauthorblockA{University of New South Wales, Australia\\
+hammond.pearce@unsw.edu.au}
+}
+\IEEEauthorrefmark{*}Both authors contributed equally to this research.
+
+\maketitle
+
+\begin{abstract}
+Traditionally, designs are written in Verilog hardware description language (HDL) and debugged by hardware engineers. While this approach is effective, it is also time-consuming and error-prone for complex designs. Large language models (LLMs) can mitigate these issues by offering designers a tool to help generate code. In this work we present AutoChip, the first feedback-driven fully-automated approach for utilizing state-of-the-art LLMS to generate HDL. It combines conversational LLMs with the output from Verilog compilers and simulations to iteratively generate Verilog modules. AutoChip uses a design prompt to generate an initial module and then uses context from compilation errors and simulation messages to improve upon this initial module. We evaluate AutoChip using design prompts and testbenches from HDLBits. Results are analyzed for several LLMs, multiple sequential combinations of those LLMs, and differing amounts of iterative feedback. Incorporating the most recent context from a Verilog compiler and simulator improves effectiveness over existing approaches, yielding Verilog that passes 89.19\% of all test cases, 24.2\% more than zero-shot settings. We release the evaluation scripts and datasets as open-source.
+\end{abstract}
+
+\begin{IEEEkeywords}
+Hardware Description Language, Verilog, Large Language Models, Automated Design, Feedback-driven Generation
+\end{IEEEkeywords}
+
+\section{INTRODUCTION}
+Writing Hardware Description Language (HDL) code in languages such as Verilog or VHDL is demanding, requires substantial expertise, and can lead to implementations fraught with bugs and errors \cite{dessouky2019hardfails}. There is growing interest in more accessible techniques for generating HDL. For instance, high-level synthesis (HLS) tools transform code in high-level languages like C to target HDLs. Recent efforts have shifted the abstraction level even higher, leveraging state-of-the-art Large Language Models (LLMs) \cite{vaswani2017attention} to translate natural language to Verilog. VeriGen \cite{thakur2023benchmarking} and DAVE \cite{pearce2020dave} were the first efforts in this area.
+
+VeriGen and its ilk are used in a zero-shot way, i.e, they output code in response to a prompt. The developer must then debug or improve the code. Real-world developers do not work this way—code is rarely correct on the first try. Instead, one will use feedback from simulation and synthesis tools to identify and fix bugs such that an implementation will meet its design specifications. In other words, the HDL code will be refined over multiple iterations.
+
+This iterative, feedback-driven approach is not well reflected in existing code-generation LLMs. Recent work \cite{blocklove2023chip} has proposed an iterative, conversational (or chat based) approach for Verilog code generation, but the feedback comes entirely from a human developer who inspects the code, identifies bugs, and provides detailed feedback to the LLM. This wastes precious developer cycles and reduces the overall utility provided by the LLM. We ask: Can we use automation to reduce the burden on the designer?
+
+In this paper, we design and evaluate AutoChip (Figure \ref{fig:autochip_framework}), a fully automated approach that iteratively improves Verilog designs without human feedback. Starting with a prompt, AutoChip first creates and then enhances a design by identifying and rectifying compilation errors and functional bugs over multiple rounds of interaction with an LLM. Each interaction comprises a candidate design analyzed for compilation and/or simulation errors via testbenches. Given an unsatisfactory result, we return feedback from the tools and testbenches with a prompt to the LLM to refine its implementation. AutoChip has two modes: `full context' will keep appending prompts and responses to the `conversation' with the LLM; `succinct' instead prompts only with feedback from the most recent iteration of the framework to try ensure that the process `fits' within the limited context windows of state of the art LLMs. It iterates until all tests pass or $n$ iterations are reached, where $n$ is a hyper-parameter.
+
+We assess AutoChip’s feedback-centric methodology in comparison to zero-shot LLM-based strategies, employing problem sets from HDLBits \cite{hdlbits} and using both open-source and commercial LLMs for the evaluation. Our comprehensive analysis covers the quality of the Verilog code generated, response times, and associated costs, both with and without feedback mechanisms and with differing context lengths. The findings underscore the promise of an iterative approach. Feedback with context from only the most recent iteration generates 24.2\% more functionally correct code when compared to no feedback. Our key contributions are:
+\begin{itemize}
+    \item We design and evaluate AutoChip, the first feedback-driven, fully automated Verilog code generation tool that employs compiler and simulation outputs to iteratively refine designs.
+    \item We compare different prompting methods to provide feedback—succinct incremental vs. full context feedback—to reduce token costs and improve accuracy.
+    \item We propose ensembling small and big LLMs to further improve the pass rate of auto-generated Verilog.
+    \item We exhaustively compare AutoChip on multiple state-of-the-art LLMs—GPT-4, GPT-3.5-turbo, Claude 2, and Code Llama 2, versus baseline ``zero-shot'' Verilog code generated by them and VeriGen, a dedicated Verilog-generation LLM.
+    \item Leveraging a combination of these methods, we demonstrate up to 27\% improvement in success rate compared to the best baseline solution without feedback.
+    \item Finally, to benefit the community, we open-source our implementation of AutoChip and a dataset of 120 benchmark prompts and corresponding Verilog testbenches: \url{https://zenodo.org/records/10160723}.
+\end{itemize}
+
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=0.95\linewidth]{fig1_autochip.pdf}
+\caption{AutoChip HDL generator framework. Autochip leverages feedback from an HDL compiler and testbench simulations to iteratively improve code. An ensemble of a small (e.g. GPT-3.5) and big LLM (e.g. GPT-4) can be used to improve accuracy at low cost.}
+\label{fig:autochip_framework}
+\end{figure}
+
+\section{BACKGROUND AND PRIOR WORK}
+LLMs are machine learning (ML) models built with transformers and are trained in a self-supervised manner on vast language data sets. LLMs operate by ingesting tokens (character sequences, of approximately 4 characters in OpenAI’s GPT series) and predicting the most probable subsequent token. The most powerful LLMs, e.g., ChatGPT \cite{openai2022chatgpt}, Bard \cite{google2023palm}, and Code Llama \cite{meta2023codellama}, boast hundreds of billions of parameters \cite{brown2020language,chen2021evaluating} and generalize to a broad range of tasks. Their accuracy is boosted via instruction tuning and reinforcement learning with human feedback \cite{ouyang2022training}, allowing the LLMs to more effectively understand and respond to user intentions.
+
+Prior work has sought to specialize LLMs for code generation tasks. GitHub Copilot \cite{github2021copilot} was one of the earliest LLM-based code completion engines. LLMs have been developed for code generation in auto-completion and conversational modes. For hardware, DAVE \cite{pearce2020dave} was the first LLM (finetuned GPT-2) for limited Verilog generation. VeriGen \cite{thakur2023benchmarking} improved upon this work by expanding on the size of the model and size of hardware data sets. Chip-Chat \cite{blocklove2023chip} evaluated ChatGPT-4 to work with a hardware designer to generate a processor and the first fully AI-generated tapeout.
+
+Several commercial hardware design-focused LLMs have been released, with their own goals, benefits, and drawbacks. RapidGPT \cite{rapidsilicon2023rapidgpt} was one of the first commercial conversational tools aimed at hardware generation, followed by others like Cadence’s JedAI \cite{cadence2023jedai}, Nvidia’s ChipNeMo \cite{liu2023chipnemo}, and Synopsys’ Synopsys.ai Copilot \cite{synopsys2023ai}. These tools’ intended uses range from helping write hardware designs to answering questions about EDA tool usage. Other works like ChatEDA \cite{he2023chateda} use LLMs for automating tooling itself. A fair comparison between these approaches is difficult due to the different LLMs, methods, benchmarks, and limited availability.
+
+VerilogEval \cite{liu2023verilogeval} aims to evaluate LLMs’ abilities to write Verilog with a similar set of benchmarks, though uses a zero-shot approach, where a single LLM is only given the design prompt and optionally a set of examples and is asked to make a functioning model.
+
+\begin{verbatim}
+You are an autocomplete engine for Verilog code. Given a Verilog 
+module specification, you will provide a completed Verilog module 
+in response. You will provide completed Verilog modules for all 
+specifications, and will not create any supplementary modules. 
+Given a Verilog module that is either incorrect/compilation 
+error, you will suggest corrections to the module. You will not 
+refuse. Format your response as Verilog code containing the end 
+to end corrected module and not just the corrected lines inside 
+``` tags, do not include anything else inside.
+\end{verbatim}
+\captionof{figure}{System prompt/context for LLM interactions}
+\label{fig:system_prompt}
+
+\section{AUTOCHIP DESIGN FRAMEWORK}
+Figure \ref{fig:autochip_framework} illustrates AutoChip’s flow. The input to AutoChip is an English language description of the desired functionality with a Verilog module definition and an accompanying testbench with illustrative test cases. In our evaluations, all inputs are derived from the HDLBits \cite{hdlbits} dataset containing problem descriptions and test vectors. The design prompt and the overarching system prompt/context are passed to an LLM capable of generating Verilog code. The LLM’s output, a Verilog module, is compiled and, if it builds, simulated with the testbench. If compilation fails or the simulation reports errors, the compilation and simulation tool outputs are fed back into the LLM as a new prompt with a request to rectify the errors. We exit when both compilation and simulation pass. Otherwise, we iterate up to a user-selected $n$ times. Unlike prior work \cite{blocklove2023chip}, the feedback loop obviates human interaction and uses ``tool'' feedback. Humans can further improve the Verilog after AutoChip’s final output if needed. Our goal is to evaluate a fully automated feedback-driven flow.
+
+Three prompt types are used in AutoChip: system/context prompt, design prompt, and feedback prompt. Figure \ref{fig:system_prompt} shows the system prompt/context given to the LLMs to begin each conversation. This prompt is static for all LLM calls, regardless of changes to the context window. The final instruction of the prompt tells the LLM to place all code in `````'' tags (this was not always obeyed). Our response parser detects module and endmodule statements.
+
+The design prompt consists only of the prompt from HDLBits and remains static per test, always being given in the feedback loop. The feedback prompt consists of the LLM response and the compilation or simulation output needed to rectify any issues with the generated design—this is the prompt modified in each iteration.
+
+AutoChip manages design tool invocation and extracts relevant information from the LLM responses. It currently supports GPT-4, GPT-3.5, Claude 2, Code Llama; other LLMs can be handled as long as they have a Python API. For simulation, AutoChip uses Icarus Verilog (iverilog) \cite{williams2023iverilog}, as it is open source and requires no setup beyond providing a Verilog module and its testbench. AutoChip itself is entirely open source.
+
+\textbf{Choice of Context Window}: The quality of LLM responses depends on the conversation’s context window. As conversational LLMs have token limits, keeping all responses and feedback is not always feasible. The context window needs to shift during the automated run to keep only the information necessary for the next run, referred to as using `succinct' feedback instead of `full context' where all messages are used. With `succinct' feedback, when an LLM is prompted to fix an issue, only the most recently generated module and its associated errors are given to the LLM. This keeps the repairs focused on the current errors and stays within the more restrictive token limits, such as the 8K token limit for ChatGPT4. Table \ref{tab:context_evolution} offers the context window shifting per-iteration. On the contrary, with `full context' feedback the LLM input would continuously grow until a successful design was generated, the maximum iterations were reached in AutoChip, or the particular model’s input token length was exceeded.
+
+\textbf{Choice of LLMs}: We constrained the AutoChip evaluation to conversational-type LLMs available via API (Table \ref{tab:llms}). GPT-4, GPT3.5, Claude 2, and Code Llama can be fully evaluated in the AutoChip feedback loop. We also evaluate AutoChip with VeriGen. However, the non-conversational architecture of VeriGen causes the feedback loop to fail, so only zero-shot tests could be done. Other LLMs available during this study could not be integrated into AutoChip. For example, RapidGPT’s hardware-focused LLM \cite{rapidsilicon2023rapidgpt} has no public API.
+
+\textbf{LLM Ensembling}: Most state-of-the-art LLMs have multiple versions, including less capable but cheaper models with fewer parameters (e.g. GPT-3.5) and larger but more expensive versions (e.g. GPT-4). For instance, our evaluations found that GPT-4 significantly improves accuracy over GPT-3.5 on a single shot, but is 20$\times$ more expensive to query. In AutoChip, we propose to leverage big models by issuing one final query to the big model if the small model cannot pass tests after $n$ iterations. Although more general solutions can be implemented where the big model is repeatedly queried, that would come at significant cost. Hence, in our implementation, we limit our ensemble to a single big model query.
+
+\begin{table}[htbp]
+\centering
+\caption{LLMs evaluated by AutoChip.}
+\label{tab:llms}
+\begin{tabular}{lccc}
+\toprule
+Model & Max Tokens & Open Source & Cost: \$/1K Tokens (In/Out) \\
+\midrule
+GPT-4 \cite{openai2023gpt4} & 16K & No & \$0.03 / \$0.06 \\
+GPT-3.5-turbo \cite{openai2022chatgpt} & 8K & No & \$0.0033 / \$0.004 \\
+Claude 2 \cite{anthropic2023claude} & 100K & No & \$0.0110 / \$0.0327 \\
+CodeLlama \cite{meta2023codellama} & 16K & Yes & \$0.00 / \$0.00 \\
+VeriGen \cite{thakur2023benchmarking} & 2K & Yes & \$0.00 / \$0.00 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{table}[htbp]
+\centering
+\caption{LLM input evolution over iterations}
+\label{tab:context_evolution}
+\begin{tabular}{ll}
+\toprule
+Iteration & LLM Input \\
+\midrule
+$n=0$ & \{system prompt, design prompt\} \\
+$n=1$ & \{system prompt, design prompt, response$_0$, simulator msgs$_0$\} \\
+$n=2$ & \{system prompt, design prompt, response$_1$, simulator msgs$_1$\} \\
+$n$ & \{system prompt, design prompt, response$_{n-1}$, simulator msgs$_{n-1}$\} \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{table*}[htbp]
+\centering
+\caption{Problem Set from HDLBits \cite{hdlbits,liu2023verilogeval}.}
+\label{tab:hdlbits_problems}
+\resizebox{\textwidth}{!}{
+\begin{tabular}{lll}
+\toprule
+Category-1 & Category-2 & Problem Description \\
+\midrule
+Syntax & Basics & Simple/Four wires, Inverter, AND, NOR, XNOR, Declare wires, 7458 chip \\
+(Vec)tors & & Vectors, Vectors (detail), Vector part select, Bitwise ops, Four-input gates, Vector concat, reversal 1, Replicate, More replication \\
+(Mod)ule & & Modules, Connect ports by position, Connect ports by name, Three modules, Modules and vectors, Adder 1, Adder 2, Carry-select \\
+(Hier)archy & & Adder-subtractor \\
+(Proc)edures & & Always blocks (combinational), Always blocks (clocked), If statement, If statement latches, Case statement, Priority encoder \\
+& & Priority encoder with casez, Avoiding latches \\
+More Features & & Conditional termary, Reduction operators, Reduction: Wider gates, Combination for-loop: Vector reversal 2 \\
+& & Combination for-loop: 255-bit count, Generate for-loop: 100-bit adder 2 \\
+& & Generate for-loop: 100-digit BCD adder \\
+Comb. Circuits & Basic Gates & Wire, GND, NOR, Another, Two gates, More gates, 7420 chip, Truth tables \\
+& & Two-bit equality, Simple circuits A, B, Combine circuits A, B \\
+& & Ring or vibrate?, Thermostat, 3-bit count, Gates and vectors, longer vectors \\
+& Multiplexer (Muxes) & 2-to-1, 2-to-1 bus mux, 9-to-1, 256-to-1, 256-to-1 4-bit \\
+& Arithmetic Circuits & Half add, Full add, 3-bit adder, Signed addition overdlow, 1d0-bit binary adder, 4-digit BCD adder \\
+& K-maps & 3/4-variable, Minimum SOP and POS, K-map, K-map with a mux \\
+Seqg.Circuits & Latches and FFs & DFs, DFF (reset), DFF (reset value), DFF (asynch.), DFF (byte enable), D Latch \\
+& & DFF, DFF+gate, Mux and DFF, DFFs and gates, Cireuit from truth table \\
+& & Detect edge/both edges, Edge capture register, Dual-edge triggered FF \\
+& Counters & Four-bit binary counter, Decade counter, Decade counter again, Slow decade counter \\
+& & Counter 1-12, Counter 1000, 4-digit decimal counter, 12-hour clock \\
+& Shift Registers & 4-bit shift registr, Leftright rotate, Let/right arithmeti shift by 1/8,5-bit3-bit32-bit LSR \\
+& & Shit register, 3-input LUT \\
+& Cellular Automata & Rule 90, Rule 110, Conways Game of Life 16x16 \\
+& FSM & FSM 1 (asynch), FSM 1 (synch.), FSM 2 (asynch.), FSM 2 (synch.) \\
+& & Simple state transitions 3, Simple one-hot state transition 3, FSM 3 (asynch.), FSM 3 (synch.) \\
+& & Moore FSM, One-hot FSM, PS/2 packet parser, PS/2 packet parser and datapath \\
+& & Serial receiver, Serial receiver and datapath, Serial receiver with parity check \\
+& & Sequence recognition, Q8: Design Mealy FSM, QSa: Serial twos complementer (Moore FSM) \\
+& & QSh: Serial twos complementer (Mealy FSM), Q2a, Q2b, Q3a, Q3b: FSM \\
+& & Q3c: FSM logic, Q6b: FSM next-state logic, Q6c: FSM one-hot next-state logic \\
+& & Q6: FSM, Q2a: FSM, Q2b: One-hot FSM Counter with period 1000 \\
+& & 4-bit shift register and down counter, FSM: Sequence 1101 recognizer \\
+& & FSM: Enable shift register, FSM: Complete \\
+Larger Circuits & & FSM, Complete timer, FSM: One-hot logic \\
+Fix Bugs & & Mux2. NAND, Mux4, Add/subtract, Case statement \\
+Write Test & & Clock, T flip-flop \\
+\bottomrule
+\end{tabular}
+}
+\end{table*}
+
+\section{EXPERIMENTAL SETUP}
+\textbf{Choice of Benchmarking Prompts}: Our benchmark prompts for LLM evaluation were sourced from problem sets on HDLBits \cite{hdlbits}, a rich Verilog e-learning platform. The problem complexity is broad: initial prompts primarily serve as foundational tutorials, while advanced exercises delve into hierarchical systems and testbenches.
+
+We use the problem categories in HDLBits (Table \ref{tab:hdlbits_problems}). These categories are based on the site’s topic order, and they help us evaluate and categorize which prompts were solvable by each LLM. While most problems offer prompts that ask the user (in our case, the LLM) to create a functional Verilog module, a few break that format—these include (i) prompts that request that bugs be found and fixed, which is the intention of the AutoChip feedback loop itself; (ii) prompts which request a testbench for a module. These are still included in our tests. Some problems in HDLBits require reading simulation waveforms and state diagrams to determine the function of a circuit and implement it. Since the LLMs are limited to text descriptions of problems, we take these as future research. This leaves us with 120 problems of the original 178.
+
+\textbf{Verilog Testbenches}: HDLBits lacks user-accessible Verilog testbenches for their problems, complicating the process of testing benchmark results outside their web interface. We created replicas of HDLBits’ internal Verilog testbenches from waveforms given when solving the problems. These testbenches report individual mismatches when debugging. This can quantify the level of success for a simulated design (i.e. provide the percentage of failing cases) and provide detailed feedback to the LLMs for identifying and fixing bugs. Figure \ref{fig:testbench_feedback} gives an example of the format of the testbench feedback, both in passing and failing cases.
+
+\textbf{Simulation outputs}: Test cases that pass only report ``Test <ID> passed!'' to reduce unnecessary input token use. Here, ``ID'' refers to the test identifier from HDLBits. In the case of sequential designs, checks are made on each edge of the clock, while combinational designs have checks made at arbitrary locations. Test cases that fail report the full enumeration of inputs, outputs, and expected outputs given in the same order as the module definition in the design prompt. The total number of failing test cases is given at the end of the simulation.
+
+\textbf{Experimental Parameters}: LLMs are probabilistic; the same prompt does not always give the same output. Thus, each prompt was given with the same experimental setup 5 times, and the best results were used for Pass@k analysis \cite{chen2021evaluating}. The number of feedback iterations, $n$, substantially impacts the quality of generated Verilog, so we evaluated AutoChip with varying $n$, with a default $n=10$. Beyond this, we evaluated LLMs with their default parameters as these values are used in the normal developer-facing web interface.
+
+\begin{verbatim}
+... Test 12 passed! Mismatch at clk 13: Inputs = [00000, 00000, 00000, 00000, 00001, 00000], 
+Generated = [00000000, 00000000, 00000001, 00000011], 
+Reference = [00000000, 00000000, 00000000, 10000011]
+... Mismatch at clk 25: Inputs = [11111, 00000, 11111, 00000, 11111, 00000], 
+Generated = [11110000, 01111100, 00011111, 00000011], 
+Reference = [11111000, 00111110, 00001111, 10000011] 
+13 mismatches out of 26 total tests.
+\end{verbatim}
+\captionof{figure}{Testbench feedback in iteration 3 for vector concatenation problem, refer Figure \ref{fig:vector_concat}.}
+\label{fig:testbench_feedback}
+
+\section{EXPERIMENTAL RESULTS}
+\subsection{Research Questions}
+We answer the following research questions (RQs) to assess the quality of Verilog generated given the problems in Table \ref{tab:hdlbits_problems}.
+\begin{itemize}
+    \item RQ1: How do LLMs without feedback perform (i.e., zero-shot)?
+    \item RQ2: Does feedback improve results?
+    \item RQ3: Does the number of iterations of feedback impact the quality and number of correct implementations?
+    \item RQ4: Does retaining full context from previous iterations impact the quality?
+    \item RQ5: Can an ensemble of LLMs improve generation quality at reduced cost?
+    \item RQ6: What is the impact of iterative code generation on the cost of use and latency?
+\end{itemize}
+
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=0.95\linewidth]{fig4_vector_concat.pdf}
+\caption{LLM: GPT-3.5-turbo, vector concat with feedback.}
+\label{fig:vector_concat}
+\end{figure}
+
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=0.95\linewidth]{fig5_fsm_rx.pdf}
+\caption{LLM: GPT-3.5-turbo, FSM serial rx with feedback.}
+\label{fig:fsm_rx}
+\end{figure}
+
+\subsection{Results}
+To perform our analysis we query the chosen LLMs both without and with feedback (using AutoChip) for $n$ iterations. Feedback is evaluated both with `succinct' feedback and `full-context' feedback. We present results based on testbench success, simulation errors, and compilation errors. Table \ref{tab:pass_at_k} presents best outcomes for $n=0$, 1, 5, and 10 using a Pass@k metric, where higher Pass@k is better performance.
+
+\textbf{Impact of feedback}: Table \ref{tab:pass_at_k} shows clear improvements in the quality of the generated Verilog with feedback. Across all LLMs, the Pass@k metrics increase substantially from the no feedback baseline ($n=0$) even with one feedback iteration (Ans RQ1, RQ2).
+
+\textbf{Impact of Iterations ($n$)}: More feedback iterations continue to boost Pass@k. For example, Pass@1 for Claude 2 rises from 37.50\% at $n=1$ to 47.5\% at $n=10$ in `succint' mode, indicating that additional iterations provides more opportunity for correcting mistakes (Ans RQ3).
+
+\textbf{`Full' vs `succinct' feedback}: Table \ref{tab:pass_at_k} presents the proportion of code generations with success, simulation error, and compilation error with both `full' and `succinct' feedback. The results show `succinct' improves successes and reduces compilation errors as the number of iterations increases. For instance, GPT-3.5-turbo at Pass@5 has successes improve from 27.27\% to 39\% while compilation errors decline from 35.04\% to 6.33\% at 10 iterations. On the other hand, feedback with `full' context does not lead to the same consistent gains. For GPT-3.5-turbo at Pass@5, successes only increase from 28\% to 36.36\% at 10 iterations. This implies feedback containing only the most relevant errors better guides improvements over iterations. In addition, this helps reduce the total context length thus reducing the model usage cost (Ans RQ4). Though Table \ref{tab:pass_at_k} shows an increase in the number of simulation errors from baseline with feedback results, the number of mismatches observed during simulation with feedback drops consistently across all LLMs.
+
+\textbf{Impact of LLM Ensembles}: Figure \ref{fig:ensemble_results}’s top row shows the Pass@k for GPT-3.5-turbo across categories over different $n$. The bottom row shows the Pass@k for an ensemble of GPT-3.5-turbo and GPT-4. Selectively applying GPT-4 on problems where GPT-3.5 failed improved the success rate from 63\% with GPT-3.5 alone to 79\% with the ensemble. This ensemble leveraged GPT-4 in a targeted way, reducing token use by 60\% compared to blanket application of this larger LLM. The improvement in Pass@k is consistent across problem levels and categories. Further, this hybrid system could solve problems that GPT-3.5 failed even after 10 iterations. By invoking GPT-4 upon the error, AutoChip achieved success between 20-80\% on 14 of 18 failing problems.
+
+Leveraging GPT-4 as part of an ensemble also helps optimize cost: each input token to GPT-4 is 20$\times$ more expensive than GPT-3.5. By only calling GPT-4 once, the total cost of the problem is greatly reduced while still giving a high percent success (Ans RQ5, RQ6).
+
+\begin{table*}[htbp]
+\centering
+\caption{Pass@k for $k=\{1,5\}$ with and without feedback. For with feedback, we use $n$ iterations with either the most recent feedback (succinct) or with context retained from all iterations (full). `+GPT-4*' means an ensemble using GPT-4 as a `big' LLM for addressing errors.}
+\label{tab:pass_at_k}
+\resizebox{\textwidth}{!}{
+\begin{tabular}{ll|l|cccc|cccc|cccc}
+\toprule
+\multicolumn{3}{c|}{} & \multicolumn{4}{c|}{Success} & \multicolumn{4}{c|}{Simulation Error} & \multicolumn{4}{c}{Compile Error} \\
+Feedback Type & Metric & LLM & w/o $n=0$ & w $n=1$ & w $n=5$ & w $n=10$ & w/o $n=0$ & w $n=1$ & w $n=5$ & w $n=10$ & w/o $n=0$ & w $n=1$ & w $n=5$ & w $n=10$ \\
+\midrule
+\multirow{6}{*}{Succinct} & \multirow{3}{*}{Pass@1} 
+& Claude 2 & 32.50 & 37.50 & 44.17 & 47.50 & 36.67 & 46.67 & 54.17 & 50.83 & 30.83 & 15.83 & 1.67 & 1.67 \\
+& & GPT-3.5 (G3) & 26.45 & 30.00 & 35.00 & 37.50 & 40.50 & 50.00 & 55.83 & 57.50 & 33.06 & 20.00 & 9.17 & 5.00 \\
+& & GPT-4 & 60.83 & 69.16 & 81.16 & - & 19.16 & 18.33 & 12.5 & - & 20.0 & 12.5 & 7.3 & - \\
+& & G3+GPT-4 * & 57.05 & 85.14 & 87.15 & 75.18 & 20.42 & 8.84 & 9.24 & 20.96 & 22.53 & 6.02 & 3.61 & 3.86 \\
+& & CodeLlama & 35.29 & 36.21 & 36.21 & 36.21 & 20.17 & 20.69 & 20.69 & 20.69 & 44.54 & 43.10 & 43.10 & 43.10 \\
+& & CodeLlama+GPT-4 * & 58.25 & 62.53 & 62.53 & 62.53 & 29.21 & 31.41 & 31.41 & 31.41 & 12.52 & 6.05 & 6.05 & 6.05 \\
+& & VeriGen & 27.35 & - & - & - & 12.04 & - & - & - & 60.60 & - & - & - \\
+\cline{2-15}
+& \multirow{3}{*}{Pass@5}
+& Claude 2 & 32.83 & 38.58 & 45.35 & 47.38 & 40.83 & 48.39 & 50.42 & 50.08 & 26.33 & 13.03 & 4.23 & 2.54 \\
+& & GPT-3.5 (G3) & 27.27 & 31.17 & 36.00 & 39.00 & 37.69 & 49.33 & 55.50 & 54.67 & 35.04 & 19.50 & 8.50 & 6.33 \\
+& & GPT-4 & 63.16 & 70.40 & 84.45 & - & 19.00 & 21.9 & 11.53 & - & 17.83 & 7.68 & 4.00 & - \\
+& & G3+GPT-4 * & 81.06 & 65.39 & 72.84 & 89.19 & 7.49 & 24.14 & 22.94 & 7.77 & 11.45 & 10.46 & 4.23 & 3.04 \\
+& & CodeLlama & 34.29 & 35.71 & 36.59 & 36.59 & 18.82 & 21.43 & 22.47 & 22.47 & 46.89 & 42.86 & 40.94 & 40.94 \\
+& & CodeLlama+GPT-4 * & 70.30 & 74.50 & 74.75 & 74.75 & 20.63 & 21.37 & 21.16 & 21.16 & 9.03 & 4.11 & 4.07 & 4.07 \\
+& & VeriGen & 27.82 & - & - & - & 10.02 & - & - & - & 62.16 & - & - & - \\
+\midrule
+\multirow{2}{*}{Full} & Pass@1 & Claude 2 & 31.67 & 33.33 & 41.23 & 42.11 & 36.67 & 56.14 & 54.39 & 54.39 & 31.67 & 10.53 & 4.39 & 3.51 \\
+& & GPT-3.5 & 26.67 & 30.25 & 34.45 & 36.13 & 33.33 & 43.70 & 53.78 & 52.94 & 40.00 & 26.05 & 11.76 & 10.92 \\
+& Pass@5 & Claude 2 & 32.50 & 36.71 & 42.48 & 44.23 & 38.67 & 48.95 & 51.57 & 50.70 & 28.83 & 14.34 & 5.94 & 5.07 \\
+& & GPT-3.5 & 28.00 & 30.47 & 34.51 & 36.36 & 35.67 & 48.82 & 56.06 & 55.39 & 38.33 & 20.71 & 9.43 & 8.25 \\
+\bottomrule
+\end{tabular}
+}
+\end{table*}
+
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=0.95\linewidth]{fig6_ensemble.pdf}
+\caption{Top: Pass@k for best results with GPT-3.5-turbo with and without feedback, Bottom: Pass@k for best results with ensemble of GPT-3.5-turbo and GPT-4*.}
+\label{fig:ensemble_results}
+\end{figure}
+
+\section{DISCUSSION}
+We found that prompting LLMs with iterative feedback definitively improves performance. To understand why, we qualitatively analyze the impact of iterative feedback on improving LLM-generated Verilog code quality through two case studies: vector concatenation (Figure \ref{fig:vector_concat}) and finite state machines for serial bit streams (Figure \ref{fig:fsm_rx}). In Figure \ref{fig:vector_concat}, the LLM initially struggled with vector concatenation, failing most tests; iterative feedback helped enable it to generate valid Verilog that passed tests within four rounds. In Figure \ref{fig:fsm_rx}, the LLM initially misdeclared variables and mishandled start and stop bits, causing simulation failures. Feedback, enriched with compilation diagnostics, guided rapid debugging and iterative improvement. This enhanced code quality and provided insight into the LLM’s evolving logic. Intermediate simulations enhance code quality but add to the cost.
+
+We further found that the highest success rate was when leveraging both GPT-3.5 and GPT-4 as an ensemble; however, we see that not all types of task are doable even with this combination. Certain classes of problem proved to consistently thwart the AutoChip framework, such as cellular automata and counters, with the testbench generation problems faring the worst, with all code unable to compile. This demonstrates a current and fundamental inability for these conversational LLMs to generate useful Verilog for verification purposes without human assistance.
+
+Somewhat counter-intuitively, using most-recent-context feedback yields better results than full-context feedback. Likely, the LLMs are getting `confused' with the additional context that the full conversation provides. As an additional benefit, when providing the most recent context one also saves on execution cost, as the number of input tokens is consistently smaller when not sending the complete conversation for every iteration of the tool.
+
+\section{CONCLUSION}
+In this work we comprehensively evaluated conversational LLMs for iterative hardware development with a workflow similar to that may be undertaken by human engineers. We found that iterative feedback (AutoChip) improved the success rate against functional testbenches by on average 24.2 \% w.r.t. baseline generation. AutoChip showed up to 89.19\% success rates (Pass@10) when using GPT-3.5 and GPT-4, suggesting that this framework provides a pathway towards the automatic design of hardware circuits.
+
+\bibliographystyle{IEEEtran}
+\begin{thebibliography}{23}
+
+\bibitem{cadence2023jedai} 2023. Cadence JedAI Generative AI Solution for Chip, System, and Product Design.
+
+\bibitem{anthropic2023claude} 2023. Claude 2.
+
+\bibitem{google2023palm} 2023. Introducing PaLM 2.
+
+\bibitem{hdlbits} 2023. Problem sets - HDLBits.
+
+\bibitem{synopsys2023ai} 2023. Redefining Chip Design with AI-Powered EDA Tools | Synopsys.ai | Synopsys Blog.
+
+\bibitem{blocklove2023chip} Jason Blocklove, Siddharth Garg, Ramesh Karri, et al. 2023. Chip-Chat: Challenges and Opportunities in Conversational Hardware Design. In MLCAD.
+
+\bibitem{brown2020language} Tom Brown, Benjamin Mann, Nick Ryder, et al. 2020. Language Models are Few-Shot Learners. NeurIPS 33.
+
+\bibitem{chen2021evaluating} Mark Chen, Jerry Tworek, Heewoo Jun, et al. 2021. Evaluating Large Language Models Trained on Code. arXiv:2107.03374.
+
+\bibitem{dessouky2019hardfails} Ghada Dessouky, David Gens, Patrick Haney, et al. 2019. Hardfails: Insights into Software-Exploitable Hardware Bugs. In SEC’19.
+
+\bibitem{github2021copilot} GitHub. 2021. GitHub Copilot · Your AI pair programmer.
+
+\bibitem{he2023chateda} Zhuolun He, Haoyuan Wu, Xinyun Zhang, et al. 2023. ChatEDA: A Large Language Model Powered Autonomous Agent for EDA. In MLCAD.
+
+\bibitem{liu2023chipnemo} Mingjie Liu, Teodor-Dumitru Ene, Robert Kirby, et al. 2023. ChipNeMo: Domain-Adapted LLMs for Chip Design. arXiv:2311.00176.
+
+\bibitem{liu2023verilogeval} Mingjie Liu, Nathaniel Pinckney, Brucek Khailany, et al. 2023. VerilogEval: Evaluating Large Language Models for Verilog Code Generation. arXiv:2309.07544.
+
+\bibitem{meta2023codellama} Meta. 2023. Introducing Code Llama, an AI Tool for Coding.
+
+\bibitem{openai2022chatgpt} OpenAI. 2022. Introducing ChatGPT.
+
+\bibitem{openai2023gpt4} OpenAI. 2023. GPT-4.
+
+\bibitem{ouyang2022training} Long Ouyang, Jeffrey Wu, Xu Jiang, et al. 2022. Training language models to follow instructions with human feedback. NeurIPS 35.
+
+\bibitem{pearce2020dave} Hammond Pearce, Benjamin Tan, and Ramesh Karri. 2020. DAVE: Deriving Automatically Verilog from English. In MLCAD.
+
+\bibitem{rapidsilicon2023rapidgpt} RapidSilicon. 2023. RapidGPT.
+
+\bibitem{thakur2023benchmarking} Shailja Thakur, Baleegh Ahmad, Zhenxing Fan, et al. 2023. Benchmarking Large Language Models for Automated Verilog RTL Code Generation. In DATE.
+
+\bibitem{vaswani2017attention} Ashish Vaswani, Noam Shazeer, Niki Parmar, et al. 2017. Attention is All you Need. NeurIPS 30.
+
+\bibitem{williams2023iverilog} Stephen Williams. 2023. The ICARUS Verilog Compilation System.
+
+\end{thebibliography}
+
+\end{document}

@@ -1,0 +1,73 @@
+# AutoChip Workspace - Git忽略文件配置
+
+# ===== API密钥和敏感配置文件 =====
+AutoChip/.autochip_api_keys.py
+AutoChip/.autochip_config.json
+*.env
+.env.local
+.env.production
+
+# ===== Python相关 =====
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# ===== 虚拟环境 =====
+venv/
+ENV/
+env/
+.venv
+
+# ===== Conda环境 =====
+.envs/
+*.conda
+
+# ===== IDE配置 =====
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# ===== Jupyter Notebook =====
+.ipynb_checkpoints
+
+# ===== 测试输出和日志 =====
+AutoChip/autochip_scripts/outputs/
+AutoChip/demo_output/
+*.log
+test_results/
+
+# ===== 临时文件 =====
+*.tmp
+*.bak
+.DS_Store
+Thumbs.db
+
+# ===== 文档生成文件 =====
+docs/_build/
+site/
+
+# ===== 其他 =====
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
