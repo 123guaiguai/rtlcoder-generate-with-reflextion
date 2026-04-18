@@ -1,0 +1,27 @@
+{
+    "general": {
+        "prompt": "../VerilogEval/Prob051_gates4_prompt.txt",
+        "name": "TopModule",
+        "testbench": "../VerilogEval/Prob051_gates4_test.sv",
+        "model_family": "Siliconflow",
+        "model_id": "",
+        "num_candidates": 2,
+        "iterations": 5,
+        "outdir": "outputs/batch_tests/test_withMix_hard_20260418_103313_20260418_103313/Prob051_gates4",
+        "log": "log.txt",
+        "mixed-models": true
+    },
+    "mixed-models": {
+        "model1": {
+            "start_iteration": 0,
+            "model_family": "Siliconflow",
+            "model_id": "Qwen/Qwen2.5-Coder-32B-Instruct"
+        },
+        "model2": {
+            "start_iteration": 5,
+            "model_family": "ChatGPT",
+            "model_id": "gpt-4o-mini",
+            "base_url": "https://models.inference.ai.azure.com"
+        }
+    }
+}

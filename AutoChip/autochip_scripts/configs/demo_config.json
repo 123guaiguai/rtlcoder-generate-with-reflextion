@@ -1,0 +1,12 @@
+{
+    "prompt": "../verilogeval_prompts_tbs/ve_testbenches_human/mux2to1/mux2to1.sv",
+    "name": "top_module",
+    "testbench": "../verilogeval_prompts_tbs/ve_testbenches_human/mux2to1/mux2to1_tb.sv",
+    "model_family": "ChatGPT",
+    "model_id": "gpt-4o-mini",
+    "num_candidates": 1,
+    "iterations": 3,
+    "outdir": "outputs/demo_output",
+    "log": "demo_log.txt",
+    "mixed-models": false
+}

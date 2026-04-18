@@ -1,0 +1,15 @@
+{
+    "general": {
+        "prompt": "../VerilogEval/Prob002_m2014_q4i_prompt.txt",
+        "name": "TopModule",
+        "testbench": "../VerilogEval/Prob002_m2014_q4i_test.sv",
+        "model_family": "Siliconflow",
+        "model_id": "Qwen/Qwen2.5-Coder-32B-Instruct",
+        "num_candidates": 2,
+        "iterations": 2,
+        "outdir": "outputs/batch_tests/test_withMix_20260418_103149_easy_20260418_103149/Prob002_m2014_q4i",
+        "log": "log.txt",
+        "mixed-models": false
+    },
+    "mixed-models": {}
+}

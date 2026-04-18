@@ -1,0 +1,15 @@
+{
+    "general": {
+        "prompt": "../VerilogEval/Prob050_kmap1_prompt.txt",
+        "name": "TopModule",
+        "testbench": "../VerilogEval/Prob050_kmap1_test.sv",
+        "model_family": "Siliconflow",
+        "model_id": "Qwen/Qwen2.5-Coder-32B-Instruct",
+        "num_candidates": 2,
+        "iterations": 2,
+        "outdir": "/tmp/test_single_run",
+        "log": "log.txt",
+        "mixed-models": false
+    },
+    "mixed-models": {}
+}

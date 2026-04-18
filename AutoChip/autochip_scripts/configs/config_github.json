@@ -1,0 +1,15 @@
+{
+    "general": {
+        "prompt": "../verilogeval_prompts_tbs/validation_set/rule90/rule90.sv",
+        "name": "top_module",
+        "testbench": "../verilogeval_prompts_tbs/validation_set/rule90/rule90_tb.sv",
+        "model_family": "ChatGPT",
+        "model_id": "gpt-4o-mini",
+        "num_candidates": 1,
+        "iterations": 3,
+        "outdir": "outputs/demo_output_github",
+        "log": "log.txt",
+        "mixed-models": false
+    },
+    "mixed-models": {}
+}

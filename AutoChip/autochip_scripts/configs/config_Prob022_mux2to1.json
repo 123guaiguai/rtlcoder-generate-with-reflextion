@@ -1,0 +1,15 @@
+{
+    "general": {
+        "prompt": "../VerilogEval/Prob022_mux2to1_prompt.txt",
+        "name": "TopModule",
+        "testbench": "../VerilogEval/Prob022_mux2to1_test.sv",
+        "model_family": "Siliconflow",
+        "model_id": "Qwen/Qwen2.5-Coder-32B-Instruct",
+        "num_candidates": 1,
+        "iterations": 2,
+        "outdir": "outputs/batch_tests/easy/Prob022_mux2to1",
+        "log": "log.txt",
+        "mixed-models": false
+    },
+    "mixed-models": {}
+}

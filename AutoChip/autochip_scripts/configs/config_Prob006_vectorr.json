@@ -1,0 +1,15 @@
+{
+    "general": {
+        "prompt": "../VerilogEval/Prob006_vectorr_prompt.txt",
+        "name": "TopModule",
+        "testbench": "../VerilogEval/Prob006_vectorr_test.sv",
+        "model_family": "Siliconflow",
+        "model_id": "Qwen/Qwen2.5-Coder-32B-Instruct",
+        "num_candidates": 1,
+        "iterations": 2,
+        "outdir": "outputs/batch_tests/easy/Prob006_vectorr",
+        "log": "log.txt",
+        "mixed-models": false
+    },
+    "mixed-models": {}
+}
